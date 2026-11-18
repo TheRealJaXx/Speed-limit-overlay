@@ -1,0 +1,6 @@
+{
+  "name": "SpeedSign",
+  "description": "Floating speed limit overlay for Google Maps showing live street speed limits and GPS speed.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

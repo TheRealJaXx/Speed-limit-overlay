@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">SpeedSign</string>
+    <string name="overlay_notification_channel_name">Speed Limit Overlay</string>
+    <string name="overlay_notification_channel_desc">Shows live street speed limit while driving over Google Maps</string>
+    <string name="overlay_notification_title">SpeedSign Overlay Active</string>
+    <string name="overlay_notification_stop">Stop</string>
+    <string name="speed_limit_header">SPEED\nLIMIT</string>
+    <string name="speed_limit_unknown">--</string>
+    <string name="action_start_overlay">Start Overlay</string>
+    <string name="action_stop_overlay">Stop Overlay</string>
+    <string name="action_open_maps">Open Google Maps</string>
+    <string name="action_grant">Allow</string>
+    <string name="status_ready">Ready to Drive</string>
+    <string name="status_overlay_active">Floating Over Apps</string>
+    <string name="status_setup_needed">Setup Required</string>
+    <string name="perm_location_title">Precise GPS Location</string>
+    <string name="perm_location_desc">Reads your current street and driving speed in real time.</string>
+    <string name="perm_overlay_title">Display Over Other Apps</string>
+    <string name="perm_overlay_desc">Floats the speed limit sign on top of Google Maps.</string>
+    <string name="perm_notifications_title">Active Drive Notification</string>
+    <string name="perm_notifications_desc">Keeps GPS speed tracking reliable in the background.</string>
+    <string name="cd_speed_sign">Speed limit sign</string>
+    <string name="cd_open_maps">Open Google Maps</string>
+    <string name="cd_close_overlay">Stop floating overlay</string>
+    <string name="cd_settings">Overlay settings</string>
+</resources>
