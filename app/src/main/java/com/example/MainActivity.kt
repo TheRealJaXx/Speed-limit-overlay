@@ -113,7 +113,13 @@ class MainActivity : ComponentActivity() {
                     onSelectOverlaySize = viewModel::setOverlaySize,
                     onToggleShowCurrentSpeed = viewModel::setShowCurrentSpeed,
                     onSelectAlertThreshold = viewModel::setAlertThreshold,
-                    onResetPosition = viewModel::resetOverlayPosition
+                    onResetPosition = viewModel::resetOverlayPosition,
+                    onTogglePersonalCap = viewModel::setPersonalMaxSpeedEnabled,
+                    onChangePersonalCapKmh = viewModel::setPersonalMaxSpeedKmh,
+                    onToggleUseLearnedPace = viewModel::setUseLearnedPaceForEta,
+                    onResetLearnedPace = viewModel::resetLearnedPace,
+                    onStartTripEta = viewModel::startTripEta,
+                    onClearTripEta = viewModel::clearTripEta
                 )
             }
         }

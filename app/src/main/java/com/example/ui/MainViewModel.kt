@@ -9,10 +9,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.DrivingLocationTracker
+import com.example.data.EtaCalculator
 import com.example.data.OverlayRuntimeState
 import com.example.data.PreferencesRepository
 import com.example.data.SpeedLimitRepository
+import com.example.model.ActiveTripEta
 import com.example.model.DrivingTelemetry
+import com.example.model.EtaSummary
+import com.example.model.LearnedPaceProfile
 import com.example.model.OverlayPreferences
 import com.example.model.OverlaySize
 import com.example.model.PermissionStatus
@@ -25,16 +29,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class CockpitUiState(
     val telemetry: DrivingTelemetry = DrivingTelemetry(),
     val preferences: OverlayPreferences = OverlayPreferences(),
+    val learnedPace: LearnedPaceProfile = LearnedPaceProfile(),
+    val activeTrip: ActiveTripEta = ActiveTripEta(),
+    val etaSummary: EtaSummary = EtaSummary(),
     val permissions: PermissionStatus = PermissionStatus(),
     val isOverlayActive: Boolean = false
 )
@@ -47,16 +54,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _permissionStatus = MutableStateFlow(readPermissions())
     private var previewLocationJob: Job? = null
+    private var lastPaceSampleMillis: Long = 0L
 
-    val uiState: StateFlow<CockpitUiState> = combine(
+    private val baseFlow = combine(
         OverlayRuntimeState.telemetry,
         preferencesRepository.preferencesFlow,
-        _permissionStatus,
-        OverlayRuntimeState.isOverlayRunning
-    ) { telemetry, prefs, perms, active ->
+        preferencesRepository.learnedPaceFlow,
+        OverlayRuntimeState.activeTrip
+    ) { telemetry, prefs, learned, trip ->
+        val eta = EtaCalculator.calculateEtaSummary(
+            telemetry = telemetry,
+            prefs = prefs,
+            learnedProfile = learned,
+            activeTrip = trip
+        )
         CockpitUiState(
             telemetry = telemetry,
             preferences = prefs,
+            learnedPace = learned,
+            activeTrip = trip,
+            etaSummary = eta
+        )
+    }
+
+    val uiState: StateFlow<CockpitUiState> = combine(
+        baseFlow,
+        _permissionStatus,
+        OverlayRuntimeState.isOverlayRunning
+    ) { state, perms, active ->
+        state.copy(
             permissions = perms,
             isOverlayActive = active
         )
@@ -122,6 +148,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 .collectLatest { location ->
+                    OverlayRuntimeState.advanceTripDistance(location.latitude, location.longitude)
+
                     val current = OverlayRuntimeState.telemetry.value
                     val base = current.copy(
                         latitude = location.latitude,
@@ -142,25 +170,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         speedMps = base.currentSpeedMps
                     )
 
-                    OverlayRuntimeState.updateTelemetry(
-                        base.copy(
-                            speedLimitInfo = lookup.info ?: base.speedLimitInfo,
-                            isFetchingStreet = false,
-                            statusNote = lookup.errorMessage
-                        )
+                    val updatedInfo = lookup.info ?: base.speedLimitInfo
+                    val updatedTelemetry = base.copy(
+                        speedLimitInfo = updatedInfo,
+                        isFetchingStreet = false,
+                        statusNote = lookup.errorMessage
                     )
+                    OverlayRuntimeState.updateTelemetry(updatedTelemetry)
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastPaceSampleMillis >= 5_000L) {
+                        val currentProfile = preferencesRepository.learnedPaceFlow.first()
+                        val updatedProfile = EtaCalculator.recordDrivingSample(
+                            current = currentProfile,
+                            tier = updatedInfo.roadTier,
+                            speedMps = updatedTelemetry.currentSpeedMps,
+                            accuracyMeters = updatedTelemetry.accuracyMeters
+                        )
+                        if (updatedProfile != null) {
+                            lastPaceSampleMillis = now
+                            preferencesRepository.saveLearnedPaceProfile(updatedProfile)
+                        }
+                    }
                 }
         }
     }
 
     fun startOverlay() {
-        val ctx = getApplication<Application>()
-        SpeedOverlayService.start(ctx)
+        SpeedOverlayService.start(getApplication())
     }
 
     fun stopOverlay() {
-        val ctx = getApplication<Application>()
-        SpeedOverlayService.stop(ctx)
+        SpeedOverlayService.stop(getApplication())
     }
 
     fun resetOverlayPosition() {
@@ -190,5 +231,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAlertThreshold(threshold: SpeedAlertThreshold) {
         viewModelScope.launch { preferencesRepository.setAlertThreshold(threshold) }
+    }
+
+    fun setPersonalMaxSpeedEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setPersonalMaxSpeedEnabled(enabled) }
+    }
+
+    fun setPersonalMaxSpeedKmh(kmh: Int) {
+        viewModelScope.launch { preferencesRepository.setPersonalMaxSpeedKmh(kmh) }
+    }
+
+    fun setUseLearnedPaceForEta(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setUseLearnedPaceForEta(enabled) }
+    }
+
+    fun resetLearnedPace() {
+        viewModelScope.launch { preferencesRepository.resetLearnedPaceProfile() }
+    }
+
+    fun startTripEta(mapsMinutes: Int, distanceInCurrentUnit: Double) {
+        val unit = uiState.value.preferences.unit
+        val distanceKm = if (unit == SpeedUnit.MPH) {
+            distanceInCurrentUnit * 1.609344
+        } else {
+            distanceInCurrentUnit
+        }
+        OverlayRuntimeState.startTrip(mapsMinutes = mapsMinutes, distanceKm = distanceKm)
+    }
+
+    fun clearTripEta() {
+        OverlayRuntimeState.clearTrip()
     }
 }

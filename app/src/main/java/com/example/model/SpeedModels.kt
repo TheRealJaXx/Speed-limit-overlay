@@ -32,12 +32,76 @@ enum class SpeedAlertThreshold(
     }
 }
 
+enum class RoadTier(val title: String, val defaultLimitKmh: Int) {
+    HIGHWAY("Highway", 110),
+    ARTERIAL("Main Road", 70),
+    LOCAL("City Street", 45);
+
+    companion object {
+        fun fromOsmHighway(raw: String?): RoadTier = when (raw) {
+            "motorway", "motorway_link", "trunk", "trunk_link" -> HIGHWAY
+            "primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link" -> ARTERIAL
+            else -> LOCAL
+        }
+    }
+}
+
+data class LearnedPaceProfile(
+    val highwayAvgKmh: Float? = null,
+    val highwaySamples: Int = 0,
+    val arterialAvgKmh: Float? = null,
+    val arterialSamples: Int = 0,
+    val localAvgKmh: Float? = null,
+    val localSamples: Int = 0
+) {
+    fun averageKmhFor(tier: RoadTier): Float? = when (tier) {
+        RoadTier.HIGHWAY -> highwayAvgKmh
+        RoadTier.ARTERIAL -> arterialAvgKmh
+        RoadTier.LOCAL -> localAvgKmh
+    }
+
+    fun samplesFor(tier: RoadTier): Int = when (tier) {
+        RoadTier.HIGHWAY -> highwaySamples
+        RoadTier.ARTERIAL -> arterialSamples
+        RoadTier.LOCAL -> localSamples
+    }
+
+    val totalSamples: Int
+        get() = highwaySamples + arterialSamples + localSamples
+}
+
+data class ActiveTripEta(
+    val isActive: Boolean = false,
+    val initialDistanceMeters: Double = 0.0,
+    val remainingDistanceMeters: Double = 0.0,
+    val mapsInitialSeconds: Long = 0L,
+    val startedAtMillis: Long = 0L
+)
+
+data class EtaSummary(
+    val effectivePaceKmh: Int = 100,
+    val effectivePaceMph: Int = 62,
+    val paceSourceLabel: String = "Personal Pace",
+    val extraMinutesPerHour: Int = 0,
+    val isExceedingPersonalCap: Boolean = false,
+    val recalculatedRemainingMinutes: Int? = null,
+    val recalculatedArrivalMillis: Long? = null,
+    val deltaMinutesVsMaps: Int? = null,
+    val remainingDistanceKm: Double? = null
+) {
+    fun effectivePaceIn(unit: SpeedUnit): Int = when (unit) {
+        SpeedUnit.MPH -> effectivePaceMph
+        SpeedUnit.KMH -> effectivePaceKmh
+    }
+}
+
 data class SpeedLimitInfo(
     val mphLimit: Int? = null,
     val kmhLimit: Int? = null,
     val streetName: String = "Locating street…",
     val roadRef: String? = null,
     val roadClass: String? = null,
+    val roadTier: RoadTier = RoadTier.LOCAL,
     val rawMaxSpeedTag: String? = null,
     val updatedAtMillis: Long = 0L
 ) {
@@ -81,13 +145,16 @@ data class DrivingTelemetry(
 }
 
 data class OverlayPreferences(
-    val unit: SpeedUnit = SpeedUnit.MPH,
+    val unit: SpeedUnit = SpeedUnit.KMH,
     val signStyle: SignStyle = SignStyle.US_MUTCD,
     val overlaySize: OverlaySize = OverlaySize.STANDARD,
     val showCurrentSpeed: Boolean = true,
     val alertThreshold: SpeedAlertThreshold = SpeedAlertThreshold.PLUS_5,
     val overlayX: Int = 32,
-    val overlayY: Int = 220
+    val overlayY: Int = 220,
+    val personalMaxSpeedEnabled: Boolean = true,
+    val personalMaxSpeedKmh: Int = 100,
+    val useLearnedPaceForEta: Boolean = true
 )
 
 data class PermissionStatus(

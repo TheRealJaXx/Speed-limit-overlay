@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,18 +75,24 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.MainActivity
 import com.example.R
 import com.example.data.DrivingLocationTracker
+import com.example.data.EtaCalculator
 import com.example.data.OverlayRuntimeState
 import com.example.data.PreferencesRepository
 import com.example.data.SpeedLimitRepository
+import com.example.model.ActiveTripEta
 import com.example.model.DrivingTelemetry
+import com.example.model.LearnedPaceProfile
 import com.example.model.OverlayPreferences
+import com.example.model.SpeedUnit
 import com.example.ui.components.SpeedLimitSign
 import com.example.ui.theme.AlertCrimson
 import com.example.ui.theme.CockpitBorder
 import com.example.ui.theme.CockpitSurface
 import com.example.ui.theme.InstrumentMuted
 import com.example.ui.theme.InstrumentWhite
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.PlusJakartaSansFontFamily
+import com.example.ui.theme.SignalAmber
 import com.example.ui.theme.SignalEmerald
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +103,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
 class SpeedOverlayService : Service() {
@@ -133,6 +140,7 @@ class SpeedOverlayService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var locationJob: Job? = null
+    private var lastPaceSampleMillis: Long = 0L
 
     private lateinit var windowManager: WindowManager
     private lateinit var preferencesRepository: PreferencesRepository
@@ -209,7 +217,7 @@ class SpeedOverlayService : Service() {
     }
 
     private fun startAsForeground() {
-        val notification = buildNotification("Watching GPS speed & street limit")
+        val notification = buildNotification("Watching GPS speed, street limit & pace")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -284,6 +292,8 @@ class SpeedOverlayService : Service() {
                     )
                 }
                 .collectLatest { location ->
+                    OverlayRuntimeState.advanceTripDistance(location.latitude, location.longitude)
+
                     val current = OverlayRuntimeState.telemetry.value
                     val baseTelemetry = current.copy(
                         latitude = location.latitude,
@@ -311,6 +321,21 @@ class SpeedOverlayService : Service() {
                         statusNote = lookup.errorMessage
                     )
                     OverlayRuntimeState.updateTelemetry(updatedTelemetry)
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastPaceSampleMillis >= 5_000L) {
+                        val currentProfile = preferencesRepository.learnedPaceFlow.first()
+                        val updatedProfile = EtaCalculator.recordDrivingSample(
+                            current = currentProfile,
+                            tier = updatedInfo.roadTier,
+                            speedMps = updatedTelemetry.currentSpeedMps,
+                            accuracyMeters = updatedTelemetry.accuracyMeters
+                        )
+                        if (updatedProfile != null) {
+                            lastPaceSampleMillis = now
+                            preferencesRepository.saveLearnedPaceProfile(updatedProfile)
+                        }
+                    }
                 }
         }
     }
@@ -352,13 +377,19 @@ class SpeedOverlayService : Service() {
             setViewTreeSavedStateRegistryOwner(owner)
             setContent {
                 val telemetry by OverlayRuntimeState.telemetry.collectAsState()
+                val activeTrip by OverlayRuntimeState.activeTrip.collectAsState()
                 val prefs by preferencesRepository.preferencesFlow.collectAsState(
                     initial = OverlayPreferences()
+                )
+                val learnedPace by preferencesRepository.learnedPaceFlow.collectAsState(
+                    initial = LearnedPaceProfile()
                 )
 
                 FloatingOverlayHud(
                     telemetry = telemetry,
                     prefs = prefs,
+                    learnedPace = learnedPace,
+                    activeTrip = activeTrip,
                     onDragDelta = { dx, dy ->
                         val p = overlayParams ?: return@FloatingOverlayHud
                         val metrics = resources.displayMetrics
@@ -411,6 +442,8 @@ class SpeedOverlayService : Service() {
 private fun FloatingOverlayHud(
     telemetry: DrivingTelemetry,
     prefs: OverlayPreferences,
+    learnedPace: LearnedPaceProfile,
+    activeTrip: ActiveTripEta,
     onDragDelta: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onOpenApp: () -> Unit,
@@ -422,6 +455,31 @@ private fun FloatingOverlayHud(
     val limit = telemetry.speedLimitInfo.limitIn(unit)
     val currentSpeed = telemetry.currentSpeedIn(unit)
     val isSpeeding = telemetry.isSpeeding(unit, prefs.alertThreshold)
+    val etaSummary = remember(telemetry, prefs, learnedPace, activeTrip) {
+        EtaCalculator.calculateEtaSummary(
+            telemetry = telemetry,
+            prefs = prefs,
+            learnedProfile = learnedPace,
+            activeTrip = activeTrip
+        )
+    }
+
+    val capInUnit = if (unit == SpeedUnit.MPH) {
+        (prefs.personalMaxSpeedKmh * 0.621371f).roundToInt()
+    } else {
+        prefs.personalMaxSpeedKmh
+    }
+
+    val etaOverlayText = remember(etaSummary) {
+        val arrival = etaSummary.recalculatedArrivalMillis ?: return@remember null
+        val timeStr = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(arrival))
+        val delta = etaSummary.deltaMinutesVsMaps ?: 0
+        when {
+            delta > 0 -> "ETA $timeStr (+${delta}m)"
+            delta < 0 -> "ETA $timeStr (${delta}m)"
+            else -> "ETA $timeStr"
+        }
+    }
 
     Column(
         horizontalAlignment = Alignment.Start,
@@ -449,7 +507,10 @@ private fun FloatingOverlayHud(
                 isSpeeding = isSpeeding,
                 scale = prefs.overlaySize.scaleFactor,
                 currentSpeed = if (telemetry.hasLocationFix) currentSpeed else null,
-                showCurrentSpeedPill = prefs.showCurrentSpeed
+                showCurrentSpeedPill = prefs.showCurrentSpeed,
+                isExceedingPersonalCap = etaSummary.isExceedingPersonalCap,
+                personalCapValue = if (prefs.personalMaxSpeedEnabled) capInUnit else null,
+                etaOverlayText = etaOverlayText
             )
         }
 
@@ -461,13 +522,17 @@ private fun FloatingOverlayHud(
             Column(
                 modifier = Modifier
                     .padding(top = 6.dp)
-                    .widthIn(min = 156.dp, max = 210.dp)
+                    .widthIn(min = 172.dp, max = 230.dp)
                     .shadow(8.dp, RoundedCornerShape(14.dp))
                     .clip(RoundedCornerShape(14.dp))
-                    .background(CockpitSurface.copy(alpha = 0.94f))
+                    .background(CockpitSurface.copy(alpha = 0.95f))
                     .border(
                         width = 1.dp,
-                        color = if (isSpeeding) AlertCrimson else CockpitBorder,
+                        color = when {
+                            isSpeeding -> AlertCrimson
+                            etaSummary.isExceedingPersonalCap -> SignalAmber
+                            else -> CockpitBorder
+                        },
                         shape = RoundedCornerShape(14.dp)
                     )
                     .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -480,7 +545,7 @@ private fun FloatingOverlayHud(
                         modifier = Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(if (telemetry.hasLocationFix) SignalEmerald else Color(0xFFF59E0B))
+                            .background(if (telemetry.hasLocationFix) SignalEmerald else SignalAmber)
                     )
                     Text(
                         text = telemetry.speedLimitInfo.displayStreetLabel,
@@ -494,10 +559,28 @@ private fun FloatingOverlayHud(
                     )
                 }
 
-                telemetry.speedLimitInfo.roadClass?.let { roadClass ->
-                    Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Pace: ${etaSummary.effectivePaceIn(unit)} ${unit.label.lowercase()} (${etaSummary.paceSourceLabel})",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    color = SignalEmerald,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (etaSummary.extraMinutesPerHour > 0 && etaSummary.recalculatedRemainingMinutes == null) {
                     Text(
-                        text = if (limit != null) roadClass else "$roadClass • No posted limit",
+                        text = "+${etaSummary.extraMinutesPerHour}m per hr vs limit",
+                        fontFamily = PlusJakartaSansFontFamily,
+                        fontSize = 10.sp,
+                        color = InstrumentMuted
+                    )
+                }
+
+                if (etaSummary.recalculatedRemainingMinutes != null) {
+                    Text(
+                        text = "${etaSummary.recalculatedRemainingMinutes} min left • Open app to edit ETA",
                         fontFamily = PlusJakartaSansFontFamily,
                         fontSize = 10.sp,
                         color = InstrumentMuted,

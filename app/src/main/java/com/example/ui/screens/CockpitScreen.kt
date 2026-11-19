@@ -28,9 +28,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Layers
@@ -38,9 +41,12 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,10 +59,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -68,6 +76,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,11 +87,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.OverlaySize
+import com.example.model.RoadTier
 import com.example.model.SignStyle
 import com.example.model.SpeedAlertThreshold
 import com.example.model.SpeedUnit
@@ -99,6 +110,8 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.PlusJakartaSansFontFamily
 import com.example.ui.theme.SignalAmber
 import com.example.ui.theme.SignalEmerald
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,7 +128,13 @@ fun CockpitScreen(
     onSelectOverlaySize: (OverlaySize) -> Unit,
     onToggleShowCurrentSpeed: (Boolean) -> Unit,
     onSelectAlertThreshold: (SpeedAlertThreshold) -> Unit,
-    onResetPosition: () -> Unit
+    onResetPosition: () -> Unit,
+    onTogglePersonalCap: (Boolean) -> Unit,
+    onChangePersonalCapKmh: (Int) -> Unit,
+    onToggleUseLearnedPace: (Boolean) -> Unit,
+    onResetLearnedPace: () -> Unit,
+    onStartTripEta: (Int, Double) -> Unit,
+    onClearTripEta: () -> Unit
 ) {
     var showSettingsSheet by remember { mutableStateOf(false) }
 
@@ -148,13 +167,11 @@ fun CockpitScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Column {
-                            Text(
-                                text = stringResource(R.string.app_name),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 actions = {
@@ -193,14 +210,20 @@ fun CockpitScreen(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .weight(1f)
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         LiveSignHeroStage(
                             uiState = uiState,
                             onSelectUnit = onSelectUnit
+                        )
+                        DrivingActionsSection(
+                            uiState = uiState,
+                            onToggleOverlay = onToggleOverlay,
+                            onOpenGoogleMaps = onOpenGoogleMaps
                         )
                     }
                     Column(
@@ -209,10 +232,12 @@ fun CockpitScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        DrivingActionsSection(
+                        PersonalPaceEtaCard(
                             uiState = uiState,
-                            onToggleOverlay = onToggleOverlay,
-                            onOpenGoogleMaps = onOpenGoogleMaps
+                            onTogglePersonalCap = onTogglePersonalCap,
+                            onChangePersonalCapKmh = onChangePersonalCapKmh,
+                            onStartTripEta = onStartTripEta,
+                            onClearTripEta = onClearTripEta
                         )
                         PermissionsChecklistCard(
                             uiState = uiState,
@@ -243,6 +268,13 @@ fun CockpitScreen(
                             onToggleOverlay = onToggleOverlay,
                             onOpenGoogleMaps = onOpenGoogleMaps
                         )
+                        PersonalPaceEtaCard(
+                            uiState = uiState,
+                            onTogglePersonalCap = onTogglePersonalCap,
+                            onChangePersonalCapKmh = onChangePersonalCapKmh,
+                            onStartTripEta = onStartTripEta,
+                            onClearTripEta = onClearTripEta
+                        )
                         PermissionsChecklistCard(
                             uiState = uiState,
                             onRequestLocation = onRequestLocation,
@@ -269,6 +301,8 @@ fun CockpitScreen(
                 onSelectOverlaySize = onSelectOverlaySize,
                 onToggleShowCurrentSpeed = onToggleShowCurrentSpeed,
                 onSelectAlertThreshold = onSelectAlertThreshold,
+                onToggleUseLearnedPace = onToggleUseLearnedPace,
+                onResetLearnedPace = onResetLearnedPace,
                 onResetPosition = onResetPosition,
                 onDismiss = { showSettingsSheet = false }
             )
@@ -327,14 +361,24 @@ private fun LiveSignHeroStage(
 ) {
     val prefs = uiState.preferences
     val telemetry = uiState.telemetry
+    val etaSummary = uiState.etaSummary
     val unit = prefs.unit
     val limit = telemetry.speedLimitInfo.limitIn(unit)
     val currentSpeed = telemetry.currentSpeedIn(unit)
     val isSpeeding = telemetry.isSpeeding(unit, prefs.alertThreshold)
+    val capInUnit = if (unit == SpeedUnit.MPH) {
+        (prefs.personalMaxSpeedKmh * 0.621371f).roundToInt()
+    } else {
+        prefs.personalMaxSpeedKmh
+    }
 
     val stageGradient = Brush.radialGradient(
         colors = listOf(
-            if (isSpeeding) Color(0xFF3F1219) else Color(0xFF1A2639),
+            when {
+                isSpeeding -> Color(0xFF3F1219)
+                etaSummary.isExceedingPersonalCap -> Color(0xFF3B280D)
+                else -> Color(0xFF1A2639)
+            },
             AsphaltBlack
         )
     )
@@ -346,7 +390,11 @@ private fun LiveSignHeroStage(
             .background(stageGradient)
             .border(
                 width = 1.dp,
-                color = if (isSpeeding) AlertCrimson.copy(alpha = 0.65f) else CockpitBorder,
+                color = when {
+                    isSpeeding -> AlertCrimson.copy(alpha = 0.65f)
+                    etaSummary.isExceedingPersonalCap -> SignalAmber.copy(alpha = 0.65f)
+                    else -> CockpitBorder
+                },
                 shape = RoundedCornerShape(24.dp)
             )
             .padding(20.dp)
@@ -355,7 +403,6 @@ private fun LiveSignHeroStage(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header row inside hero stage: Unit selector + GPS status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -386,7 +433,6 @@ private fun LiveSignHeroStage(
                     )
                 }
 
-                // Compact Unit Switcher (MPH / KM/H)
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
@@ -420,7 +466,6 @@ private fun LiveSignHeroStage(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Main Hero Sign + Live Current Speed side-by-side
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -432,7 +477,8 @@ private fun LiveSignHeroStage(
                     signStyle = prefs.signStyle,
                     isSpeeding = isSpeeding,
                     scale = 1.38f,
-                    showCurrentSpeedPill = false
+                    showCurrentSpeedPill = false,
+                    isExceedingPersonalCap = etaSummary.isExceedingPersonalCap
                 )
 
                 Column(
@@ -453,21 +499,28 @@ private fun LiveSignHeroStage(
                         fontWeight = FontWeight.Bold,
                         fontSize = 48.sp,
                         lineHeight = 52.sp,
-                        color = if (isSpeeding) AlertCrimson else InstrumentWhite
+                        color = when {
+                            isSpeeding -> AlertCrimson
+                            etaSummary.isExceedingPersonalCap -> SignalAmber
+                            else -> InstrumentWhite
+                        }
                     )
                     Text(
-                        text = unit.label,
+                        text = if (prefs.personalMaxSpeedEnabled) {
+                            "${unit.label} • Cap $capInUnit"
+                        } else {
+                            unit.label
+                        },
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.Medium,
                         fontSize = 12.sp,
-                        color = InstrumentMuted
+                        color = if (etaSummary.isExceedingPersonalCap) SignalAmber else InstrumentMuted
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Current Street Banner
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -516,6 +569,383 @@ private fun LiveSignHeroStage(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalPaceEtaCard(
+    uiState: CockpitUiState,
+    onTogglePersonalCap: (Boolean) -> Unit,
+    onChangePersonalCapKmh: (Int) -> Unit,
+    onStartTripEta: (Int, Double) -> Unit,
+    onClearTripEta: () -> Unit
+) {
+    val prefs = uiState.preferences
+    val unit = prefs.unit
+    val eta = uiState.etaSummary
+    val learned = uiState.learnedPace
+    val activeTrip = uiState.activeTrip
+
+    val capDisplay = if (unit == SpeedUnit.MPH) {
+        (prefs.personalMaxSpeedKmh * 0.621371f).roundToInt()
+    } else {
+        prefs.personalMaxSpeedKmh
+    }
+
+    var mapsMinutesInput by rememberSaveable { mutableStateOf("60") }
+    var distanceInput by rememberSaveable(unit) {
+        mutableStateOf(if (unit == SpeedUnit.KMH) "120" else "75")
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TrendingDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Personal Pace & Real ETA",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Adjusts arrival time to how you actually drive",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Personal Comfort Cap Row
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "My Comfort Speed Cap",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Text(
+                                text = if (prefs.personalMaxSpeedEnabled) {
+                                    "Caps ETA & alerts at $capDisplay ${unit.label}"
+                                } else {
+                                    "Off — uses posted limit or learned pace"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = prefs.personalMaxSpeedEnabled,
+                            onCheckedChange = onTogglePersonalCap,
+                            modifier = Modifier.testTag("personal_cap_switch")
+                        )
+                    }
+
+                    AnimatedVisibility(visible = prefs.personalMaxSpeedEnabled) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                IconButton(
+                                    onClick = { onChangePersonalCapKmh(prefs.personalMaxSpeedKmh - 5) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease comfort speed cap")
+                                }
+                                Text(
+                                    text = "$capDisplay ${unit.label}",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 20.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                IconButton(
+                                    onClick = { onChangePersonalCapKmh(prefs.personalMaxSpeedKmh + 5) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase comfort speed cap")
+                                }
+                            }
+                            Slider(
+                                value = prefs.personalMaxSpeedKmh.toFloat(),
+                                onValueChange = { onChangePersonalCapKmh((it / 5f).roundToInt() * 5) },
+                                valueRange = 60f..140f,
+                                steps = 15
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Learned Driving Pace Summary
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Learned Driving Pace",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = "${learned.totalSamples} samples",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoadTier.entries.forEach { tier ->
+                        val avgKmh = learned.averageKmhFor(tier)
+                        val avgDisplay = avgKmh?.let {
+                            val v = if (unit == SpeedUnit.MPH) (it * 0.621371f).roundToInt() else it.roundToInt()
+                            "$v"
+                        } ?: "--"
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = tier.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (avgKmh != null) "$avgDisplay ${unit.label.lowercase()}" else "--",
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val streetLimit = uiState.telemetry.speedLimitInfo.limitIn(unit)
+                val paceLine = if (eta.extraMinutesPerHour > 0) {
+                    val refLimit = streetLimit ?: if (unit == SpeedUnit.KMH) 120 else 75
+                    "At your ${eta.effectivePaceIn(unit)} ${unit.label} pace on a $refLimit ${unit.label} road, add +${eta.extraMinutesPerHour} min/hr to Maps ETA."
+                } else {
+                    "Current ETA pace: ${eta.effectivePaceIn(unit)} ${unit.label} (${eta.paceSourceLabel})."
+                }
+                Text(
+                    text = paceLine,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+
+            // Active Trip ETA Recalculator
+            if (activeTrip.isActive && eta.recalculatedArrivalMillis != null) {
+                val arrivalFormatted = DateFormat.getTimeInstance(DateFormat.SHORT)
+                    .format(Date(eta.recalculatedArrivalMillis))
+                val remainingMins = eta.recalculatedRemainingMinutes ?: 0
+                val hoursPart = remainingMins / 60
+                val minsPart = remainingMins % 60
+                val durationStr = if (hoursPart > 0) "${hoursPart}h ${minsPart}m" else "${minsPart}m"
+                val delta = eta.deltaMinutesVsMaps ?: 0
+                val deltaStr = when {
+                    delta > 0 -> "+${delta} min vs Maps"
+                    delta < 0 -> "${delta} min vs Maps"
+                    else -> "Same as Maps"
+                }
+                val remDist = eta.remainingDistanceKm ?: 0.0
+                val distDisplay = if (unit == SpeedUnit.MPH) {
+                    "${((remDist * 0.621371) * 10).roundToInt() / 10.0} mi"
+                } else {
+                    "${(remDist * 10).roundToInt() / 10.0} km"
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Live Recalculated ETA",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                            IconButton(
+                                onClick = onClearTripEta,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear trip ETA"
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            Column {
+                                Text(
+                                    text = arrivalFormatted,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 28.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "$durationStr remaining • $distDisplay left",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = if (delta > 0) SignalAmber.copy(alpha = 0.2f) else SignalEmerald.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = deltaStr,
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (delta > 0) SignalAmber else SignalEmerald,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Recalculate a Google Maps Trip",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = mapsMinutesInput,
+                            onValueChange = { input ->
+                                mapsMinutesInput = input.filter { it.isDigit() }.take(4)
+                            },
+                            label = { Text("Maps ETA (min)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("maps_eta_minutes_input")
+                        )
+                        OutlinedTextField(
+                            value = distanceInput,
+                            onValueChange = { input ->
+                                distanceInput = input.filter { it.isDigit() || it == '.' }.take(6)
+                            },
+                            label = {
+                                Text(if (unit == SpeedUnit.KMH) "Distance (km)" else "Distance (mi)")
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("maps_distance_input")
+                        )
+                    }
+
+                    val mins = mapsMinutesInput.toIntOrNull()
+                    val dist = distanceInput.toDoubleOrNull()
+                    val inputsValid = mins != null && mins > 0 && dist != null && dist > 0.1
+
+                    FilledTonalButton(
+                        onClick = {
+                            if (mins != null && dist != null) {
+                                onStartTripEta(mins, dist)
+                            }
+                        },
+                        enabled = inputsValid,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("start_eta_button"),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Recalculate & Track Live ETA")
                     }
                 }
             }
@@ -588,7 +1018,7 @@ private fun DrivingActionsSection(
 
         if (active) {
             Text(
-                text = "Tip: Drag the floating sign anywhere over Google Maps, or tap it to view street name & stop.",
+                text = "Tip: Drag the floating sign anywhere over Google Maps, or tap it to view street name & pace.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp)
@@ -754,6 +1184,8 @@ private fun OverlaySettingsContent(
     onSelectOverlaySize: (OverlaySize) -> Unit,
     onToggleShowCurrentSpeed: (Boolean) -> Unit,
     onSelectAlertThreshold: (SpeedAlertThreshold) -> Unit,
+    onToggleUseLearnedPace: (Boolean) -> Unit,
+    onResetLearnedPace: () -> Unit,
     onResetPosition: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -763,8 +1195,9 @@ private fun OverlaySettingsContent(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -780,7 +1213,6 @@ private fun OverlaySettingsContent(
             }
         }
 
-        // Sign Style
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Sign Style", style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -799,7 +1231,6 @@ private fun OverlaySettingsContent(
             }
         }
 
-        // Overlay Size
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Overlay Size", style = MaterialTheme.typography.titleMedium)
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -818,7 +1249,6 @@ private fun OverlaySettingsContent(
             }
         }
 
-        // Speeding Alert Threshold
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = "Speeding Visual Alert (${prefs.unit.label})",
@@ -845,7 +1275,6 @@ private fun OverlaySettingsContent(
             }
         }
 
-        // Show Current Speed Toggle
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -868,6 +1297,40 @@ private fun OverlaySettingsContent(
                 checked = prefs.showCurrentSpeed,
                 onCheckedChange = onToggleShowCurrentSpeed
             )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .clickable { onToggleUseLearnedPace(!prefs.useLearnedPaceForEta) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Learn My Driving Pace", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Uses your typical highway and local cruising speeds to adjust ETA",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = prefs.useLearnedPaceForEta,
+                onCheckedChange = onToggleUseLearnedPace
+            )
+        }
+
+        OutlinedButton(
+            onClick = onResetLearnedPace,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("Reset Learned Driving Pace")
         }
 
         OutlinedButton(

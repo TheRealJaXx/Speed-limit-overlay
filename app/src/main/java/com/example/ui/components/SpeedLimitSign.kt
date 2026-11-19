@@ -42,6 +42,8 @@ import com.example.ui.theme.InstrumentWhite
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.OswaldFontFamily
 import com.example.ui.theme.PlusJakartaSansFontFamily
+import com.example.ui.theme.SignalAmber
+import com.example.ui.theme.SignalEmerald
 import com.example.ui.theme.SignInkBlack
 import com.example.ui.theme.SignInternationalRed
 import com.example.ui.theme.SignPlateWhite
@@ -55,7 +57,10 @@ fun SpeedLimitSign(
     modifier: Modifier = Modifier,
     scale: Float = 1f,
     currentSpeed: Int? = null,
-    showCurrentSpeedPill: Boolean = false
+    showCurrentSpeedPill: Boolean = false,
+    isExceedingPersonalCap: Boolean = false,
+    personalCapValue: Int? = null,
+    etaOverlayText: String? = null
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "speeding_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -69,7 +74,11 @@ fun SpeedLimitSign(
     )
 
     val alertGlowColor by animateColorAsState(
-        targetValue = if (isSpeeding) AlertCrimson.copy(alpha = pulseAlpha) else Color.Transparent,
+        targetValue = when {
+            isSpeeding -> AlertCrimson.copy(alpha = pulseAlpha)
+            isExceedingPersonalCap -> SignalAmber.copy(alpha = pulseAlpha)
+            else -> Color.Transparent
+        },
         animationSpec = tween(220),
         label = "alert_glow"
     )
@@ -112,8 +121,15 @@ fun SpeedLimitSign(
                 currentSpeed = currentSpeed,
                 unit = unit,
                 isSpeeding = isSpeeding,
+                isExceedingPersonalCap = isExceedingPersonalCap,
+                personalCapValue = personalCapValue,
                 scale = scale
             )
+        }
+
+        if (!etaOverlayText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height((4 * scale).dp))
+            OverlayEtaPill(text = etaOverlayText, scale = scale)
         }
     }
 }
@@ -247,10 +263,20 @@ private fun CurrentSpeedPill(
     currentSpeed: Int,
     unit: SpeedUnit,
     isSpeeding: Boolean,
+    isExceedingPersonalCap: Boolean,
+    personalCapValue: Int?,
     scale: Float
 ) {
-    val pillBg = if (isSpeeding) Color(0xEB991B1B) else Color(0xE60B0E14)
-    val pillBorder = if (isSpeeding) AlertCrimson else Color(0x4D94A3B8)
+    val pillBg = when {
+        isSpeeding -> Color(0xEB991B1B)
+        isExceedingPersonalCap -> Color(0xEB78350F)
+        else -> Color(0xE60B0E14)
+    }
+    val pillBorder = when {
+        isSpeeding -> AlertCrimson
+        isExceedingPersonalCap -> SignalAmber
+        else -> Color(0x4D94A3B8)
+    }
 
     Row(
         modifier = Modifier
@@ -271,11 +297,43 @@ private fun CurrentSpeedPill(
         )
         Spacer(modifier = Modifier.width((4 * scale).dp))
         Text(
-            text = unit.label.lowercase(),
+            text = if (isExceedingPersonalCap && !isSpeeding && personalCapValue != null) {
+                "cap $personalCapValue"
+            } else {
+                unit.label.lowercase()
+            },
             fontFamily = JetBrainsMonoFontFamily,
             fontWeight = FontWeight.Medium,
             fontSize = (10 * scale).sp,
-            color = if (isSpeeding) Color(0xFFFECACA) else InstrumentMuted
+            color = when {
+                isSpeeding -> Color(0xFFFECACA)
+                isExceedingPersonalCap -> Color(0xFFFDE68A)
+                else -> InstrumentMuted
+            }
+        )
+    }
+}
+
+@Composable
+private fun OverlayEtaPill(
+    text: String,
+    scale: Float
+) {
+    Row(
+        modifier = Modifier
+            .shadow((4 * scale).dp, RoundedCornerShape(50))
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xEB0B0E14))
+            .border((1 * scale).dp, SignalEmerald.copy(alpha = 0.65f), RoundedCornerShape(50))
+            .padding(horizontal = (9 * scale).dp, vertical = (3.5f * scale).dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text,
+            fontFamily = JetBrainsMonoFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = (10 * scale).sp,
+            color = SignalEmerald
         )
     }
 }

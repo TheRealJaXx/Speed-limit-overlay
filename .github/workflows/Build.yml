@@ -21,11 +21,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Accept Android SDK licenses
+      - name: Prepare Android SDK & licenses
         run: |
-          SDK_MANAGER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | head -n 1)
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDK_MANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)
           if [ -n "$SDK_MANAGER" ]; then
             yes | "$SDK_MANAGER" --licenses > /dev/null || true
+            "$SDK_MANAGER" "platforms;android-36.1" "build-tools;36.0.0" || "$SDK_MANAGER" "platforms;android-36" "build-tools;36.0.0" || true
           fi
 
       - name: Set up Gradle
@@ -33,14 +35,17 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
-      - name: Decode debug keystore
+      - name: Prepare debug keystore and env
         run: |
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            cp .env.example .env
+          fi
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3g -Dfile.encoding=UTF-8"
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4

@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.model.RoadTier
 import com.example.model.SpeedLimitInfo
 import kotlin.math.PI
 import kotlin.math.abs
@@ -140,6 +141,7 @@ object SpeedLimitParser {
             streetName = streetName,
             roadRef = tags["ref"],
             roadClass = formatHighwayClass(tags["highway"]),
+            roadTier = RoadTier.fromOsmHighway(tags["highway"]),
             rawMaxSpeedTag = rawMaxSpeed,
             updatedAtMillis = nowMillis
         )
